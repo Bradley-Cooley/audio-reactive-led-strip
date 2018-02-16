@@ -30,6 +30,19 @@ elif config.DEVICE == 'blinkstick':
     # Create a listener that turns the leds off when the program terminates
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
+elif config.DEVICE == 'opc':
+    import opc
+    # Create a client object
+    client = opc.Client(config.OPC_SERVER)
+    # Test if it can connect (optional)
+    if client.can_connect():
+        print('connected to %s' % config.OPC_SERVER)
+    else:
+        # We could exit here, but instead let's just print a warning
+        # and then keep trying to send pixels in case the server
+        # appears later
+        print('WARNING: could not connect to %s' % config.OPC_SERVER)
+
 
 _gamma = np.load(config.GAMMA_TABLE_PATH)
 """Gamma lookup table used for nonlinear brightness correction"""
@@ -109,7 +122,7 @@ def _update_pi():
     strip.show()
 
 def _update_blinkstick():
-    """Writes new LED values to the Blinkstick.
+    """Writes new LED values to an OPC compatible server.
         This function updates the LED strip with new values.
     """
     global pixels
@@ -134,6 +147,29 @@ def _update_blinkstick():
     #send the data to the blinkstick
     stick.set_led_data(0, newstrip)
 
+def _update_opc():
+    """Writes new LED values to the Blinkstick.
+        This function updates the LED strip with new values.
+    """
+    global pixels
+    
+    # Truncate values and cast to integer
+    pixels = np.clip(pixels, 0, 255).astype(int)
+    # Optional gamma correction
+    p = _gamma[pixels] if config.SOFTWARE_GAMMA_CORRECTION else np.copy(pixels)
+    # Read the rgb values
+    r = p[0][:].astype(int)
+    g = p[1][:].astype(int)
+    b = p[2][:].astype(int)
+
+    #create array in which we will store the led states
+    newstrip = []
+
+    for i in range(config.N_PIXELS):
+        # OPC format
+        newstrip.append( (r[i], g[i], b[i]) )
+    #send the data to the blinkstick
+    client.put_pixels(newstrip)
 
 def update():
     """Updates the LED strip values"""
@@ -143,6 +179,8 @@ def update():
         _update_pi()
     elif config.DEVICE == 'blinkstick':
         _update_blinkstick()
+    elif config.DEVICE == 'opc':
+        _update_opc()
     else:
         raise ValueError('Invalid device selected')
 
